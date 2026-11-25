@@ -1,0 +1,21 @@
+fullnameOverride: api
+replicaCount: 2
+image:
+  repository: restaurant-api
+  tag: "0.4.0"
+  pullPolicy: IfNotPresent
+containerPort: 8000
+service:
+  type: ClusterIP
+  port: 80
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: 500m, memory: 256Mi}
+probes:
+  liveness: /health
+  readiness: /ready
+podAnnotations: {}
+global:
+  configMapName: app-config
+  secretName: app-secret
+  s3CredentialsSecret: s3-credentials

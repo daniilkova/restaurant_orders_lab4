@@ -1,0 +1,29 @@
+# Отдельная S3-учётка приложения (не admin-ключи оператора — принцип наименьших привилегий).
+# Оператор генерирует ключи и кладёт их в Secret s3-credentials (ключи AWS_ACCESS_KEY_ID /
+# AWS_SECRET_ACCESS_KEY), который подключается к подам API через envFrom.
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Identity
+metadata:
+  name: restaurant-app
+  namespace: fastapi-app
+spec:
+  seaweedRef:
+    name: seaweedfs
+  name: restaurant-app
+  account:
+    displayName: Restaurant API
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Credentials
+metadata:
+  name: restaurant-app
+  namespace: fastapi-app
+spec:
+  seaweedRef:
+    name: seaweedfs
+  identityRef:
+    name: restaurant-app
+  secretRef:
+    name: s3-credentials
+    accessKeyField: AWS_ACCESS_KEY_ID
+    secretKeyField: AWS_SECRET_ACCESS_KEY

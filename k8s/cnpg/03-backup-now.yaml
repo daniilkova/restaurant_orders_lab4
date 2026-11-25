@@ -1,0 +1,8 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  name: restaurant-db-manual
+  namespace: fastapi-app
+spec:
+  cluster:
+    name: restaurant-db

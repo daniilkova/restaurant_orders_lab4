@@ -1,0 +1,59 @@
+# helm install alloy grafana/alloy -n monitoring -f monitoring/alloy-values.yaml
+# Alloy — DaemonSet: на каждом узле читает логи подов через Kubernetes API и отправляет в Loki.
+alloy:
+  configMap:
+    content: |
+      // 1. Находим все поды кластера
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      // 2. Метки для Loki: namespace, pod, container, app (из метки пода app)
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app"]
+          target_label  = "app"
+        }
+      }
+
+      // 3. Читаем логи контейнеров
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.process.app.receiver]
+      }
+
+      // 4. Наши сервисы пишут JSON: поле level становится меткой (мало значений —
+      //    низкая кардинальность), остальные поля разбираются в Grafana через | json
+      loki.process "app" {
+        stage.match {
+          selector = "{namespace=\"fastapi-app\"}"
+          stage.json {
+            expressions = { level = "level" }
+          }
+          stage.labels {
+            values = { level = "" }
+          }
+        }
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+        }
+      }
+controller:
+  type: daemonset

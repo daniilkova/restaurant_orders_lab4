@@ -1,0 +1,135 @@
+# Локальная разработка: тот же набор сервисов, что и в Kubernetes.
+x-app-env: &app-env
+  DATABASE_URL: postgresql+asyncpg://restaurant:restaurant@db:5432/restaurant
+  REDIS_URL: redis://redis:6379/1
+  CELERY_BROKER_URL: amqp://restaurant:restaurant@rabbitmq:5672//
+  ADMIN_USERNAME: admin
+  ADMIN_PASSWORD: admin
+  SECRET_KEY: change-me-in-production
+  COOKING_DELAY_SECONDS: "20"
+  DELIVERY_DELAY_SECONDS: "20"
+  S3_ENDPOINT: http://seaweedfs:8333
+  S3_BUCKET: fastapi-files
+  S3_AUTO_CREATE_BUCKET: "true"
+  AWS_ACCESS_KEY_ID: restaurant
+  AWS_SECRET_ACCESS_KEY: restaurant-secret
+  LOG_FORMAT: json
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: restaurant
+      POSTGRES_PASSWORD: restaurant
+      POSTGRES_DB: restaurant
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U restaurant -d restaurant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: restaurant
+      RABBITMQ_DEFAULT_PASS: restaurant
+    ports:
+      - "15672:15672"   # веб-интерфейс RabbitMQ (restaurant / restaurant)
+      - "15692:15692"   # метрики Prometheus
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    command: alembic upgrade head
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment: *app-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+  flower:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    command: celery -A app.celery_app flower --port=5555 --basic-auth=admin:secret
+    environment: *app-env
+    ports:
+      - "5555:5555"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # S3-хранилище: master + volume + filer + S3-шлюз в одном контейнере
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.80
+    command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - "8333:8333"
+    volumes:
+      - seaweed:/data
+      - ./monitoring/local/seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./monitoring/local/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/local/alerts.rules.yml:/etc/prometheus/alerts.rules.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./monitoring/local/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
+  seaweed:

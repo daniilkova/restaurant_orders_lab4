@@ -1,0 +1,36 @@
+# Миграции выполняются один раз отдельным Job, а не при старте каждого пода API:
+# иначе две реплики одновременно запускали бы alembic upgrade.
+# Повторный запуск: kubectl delete job db-migrate -n fastapi-app && kubectl apply -f k8s/20-migrate-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: fastapi-app
+  labels:
+    app: db-migrate
+spec:
+  backoffLimit: 10            # пока PostgreSQL поднимается, Job перезапускается
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: restaurant-api:0.4.0
+          imagePullPolicy: IfNotPresent
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

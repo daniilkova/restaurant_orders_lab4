@@ -1,0 +1,73 @@
+# helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+# helm install monitoring prometheus-community/kube-prometheus-stack -n monitoring --create-namespace \
+#   -f monitoring/prometheus-values.yaml
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    resources:
+      requests: {memory: 512Mi, cpu: 250m}
+      limits: {memory: 1Gi, cpu: "1"}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    # Подхватывать ServiceMonitor/PodMonitor/PrometheusRule из всех namespace, а не только с меткой релиза
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+grafana:
+  enabled: true
+  adminPassword: admin            # учебный стенд; в ЛР5 пароль переезжает в Vault
+  resources:
+    requests: {memory: 256Mi, cpu: 100m}
+    limits: {memory: 512Mi, cpu: 500m}
+  persistence:
+    enabled: true
+    size: 5Gi
+  # Дашборды из ConfigMap с меткой grafana_dashboard=1 (monitoring/grafana-dashboards-configmap.yaml)
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+  # Loki как второй источник данных (логи) рядом с Prometheus (метрики)
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki-gateway.monitoring.svc.cluster.local
+      jsonData:
+        maxLines: 1000
+
+alertmanager:
+  enabled: true
+  resources:
+    requests: {memory: 128Mi, cpu: 50m}
+    limits: {memory: 256Mi, cpu: 200m}
+  config:
+    route:
+      receiver: "null"
+      group_by: [alertname, namespace]
+      routes:
+        - receiver: restaurant-team
+          matchers: ['namespace="fastapi-app"']
+    receivers:
+      - name: "null"
+      # Пример канала уведомлений: webhook (Telegram-бот, Slack и т.п. подключаются аналогично)
+      - name: restaurant-team
+        webhook_configs:
+          - url: http://alert-webhook.fastapi-app.svc.cluster.local/alerts
+            send_resolved: true
+
+nodeExporter:
+  enabled: true
+kubeStateMetrics:
+  enabled: true

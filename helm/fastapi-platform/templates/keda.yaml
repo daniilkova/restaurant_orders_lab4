@@ -1,0 +1,53 @@
+{{- if .Values.keda.enabled }}
+{{- $s := .Values.secrets }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keda-rabbitmq-secret
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "config") | nindent 4 }}
+type: Opaque
+stringData:
+  host: {{ printf "amqp://%s:%s@rabbitmq.%s.svc.cluster.local:5672/" $s.rabbitmqUser $s.rabbitmqPassword .Release.Namespace | quote }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: rabbitmq-auth
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "autoscaling") | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: keda-rabbitmq-secret
+      key: host
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: celery-worker-scaler
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "autoscaling") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: celery-worker
+  pollingInterval: {{ .Values.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.keda.cooldownPeriod }}
+  minReplicaCount: {{ .Values.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.keda.maxReplicaCount }}
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: {{ .Values.config.CELERY_QUEUE }}
+        mode: QueueLength
+        value: {{ .Values.keda.messagesPerWorker | quote }}
+      authenticationRef:
+        name: rabbitmq-auth
+{{- end }}

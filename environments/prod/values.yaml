@@ -1,0 +1,11 @@
+database:
+  mode: cnpg
+  cnpg:
+    instances: 3
+api:
+  replicaCount: 3
+keda:
+  enabled: true
+  maxReplicaCount: 20
+worker:
+  autoscaled: true

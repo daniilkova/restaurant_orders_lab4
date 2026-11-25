@@ -1,0 +1,56 @@
+{{- if .Values.flower.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flower
+  labels:
+    app: flower
+    app.kubernetes.io/part-of: restaurant
+  annotations:
+    {{- include "worker.syncWave" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flower
+  template:
+    metadata:
+      labels:
+        app: flower
+    spec:
+      containers:
+        - name: flower
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["sh", "-c", "celery -A app.celery_app flower --port=5555 --basic-auth=$ADMIN_USERNAME:$ADMIN_PASSWORD"]
+          ports:
+            - name: http
+              containerPort: 5555
+          envFrom:
+            - configMapRef:
+                name: {{ .Values.global.configMapName }}
+            - secretRef:
+                name: {{ .Values.global.secretName }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.flower.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flower
+  labels:
+    app: flower
+  annotations:
+    {{- include "worker.syncWave" . | nindent 4 }}
+spec:
+  selector:
+    app: flower
+  ports:
+    - name: http
+      port: 5555
+      targetPort: http
+{{- end }}

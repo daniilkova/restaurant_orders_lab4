@@ -1,0 +1,51 @@
+# Те же правила, что в monitoring/alerts.yaml (PrometheusRule), в формате Prometheus
+groups:
+- name: restaurant-api
+  rules:
+  - alert: HighErrorRate
+    expr: "sum(rate(http_requests_total{namespace=\"fastapi-app\", status=~\"5..\"}[5m]))\n  /\nsum(rate(http_requests_total{namespace=\"fastapi-app\"}[5m])) > 0.05\n"
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Доля ответов 5xx в API выше 5%
+      description: 'Ошибок 5xx: {{ $value | humanizePercentage }} за 5 минут'
+  - alert: HighLatency
+    expr: "histogram_quantile(0.95,\n  sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"fastapi-app\"}[5m]))) > 1\n"
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: P95 времени ответа API больше 1 с
+      description: P95 = {{ $value | humanizeDuration }}
+  - alert: ApiDown
+    expr: absent(up{job="api", namespace="fastapi-app"} == 1)
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: Нет ни одного доступного пода API
+- name: restaurant-celery
+  rules:
+  - alert: CeleryQueueBacklog
+    expr: sum(rabbitmq_detailed_queue_messages_ready{queue="celery"}) > 100
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Очередь Celery растёт
+      description: В очереди celery {{ $value }} задач больше 10 минут
+  - alert: NoCeleryWorkers
+    expr: sum(flower_worker_online) < 1
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: 'Нет ни одного онлайн-воркера Celery: статусы заказов не меняются'
+  - alert: OrdersStuckAccepted
+    expr: "increase(restaurant_orders_created_total[15m]) > 0\n  and on() sum(increase(flower_events_total{type=\"task-succeeded\"}[15m])) == 0\n"
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Заказы поступают, но задачи Celery не выполняются

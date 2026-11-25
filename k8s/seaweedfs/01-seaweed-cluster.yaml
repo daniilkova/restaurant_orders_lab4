@@ -1,0 +1,33 @@
+# SeaweedFS — S3-совместимое хранилище (Apache 2.0), управляется оператором:
+#   helm repo add seaweedfs-operator https://seaweedfs.github.io/seaweedfs-operator/
+#   helm install seaweedfs-operator seaweedfs-operator/seaweedfs-operator -n seaweedfs-system --create-namespace
+# Master хранит топологию, Volume — сами данные, Filer — дерево файлов и S3-шлюз (порт 8333).
+apiVersion: seaweed.seaweedfs.com/v1
+kind: Seaweed
+metadata:
+  name: seaweedfs
+  namespace: fastapi-app
+spec:
+  image: chrislusf/seaweedfs:3.80
+  volumeServerDiskCount: 1
+  master:
+    replicas: 1
+    volumeSizeLimitMB: 1024
+    defaultReplication: "000"      # одна копия: в однонодовом Minikube реплицировать некуда
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  volume:
+    replicas: 1
+    requests: {cpu: 100m, memory: 256Mi, storage: 10Gi}
+    limits: {cpu: 500m, memory: 512Mi}
+  filer:
+    replicas: 1
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+    persistence:
+      enabled: true
+      resources:
+        requests:
+          storage: 5Gi
+    s3:
+      enabled: true                # S3 API на порту 8333

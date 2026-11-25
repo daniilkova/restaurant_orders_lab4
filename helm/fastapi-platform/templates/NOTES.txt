@@ -1,0 +1,10 @@
+Ресторан и заказы развёрнут в namespace {{ .Release.Namespace }} (режим БД: {{ .Values.database.mode }}).
+
+  kubectl get pods -n {{ .Release.Namespace }}
+  kubectl port-forward -n {{ .Release.Namespace }} svc/api 8000:80   ->  http://localhost:8000/docs
+{{- if .Values.ingress.enabled }}
+  Ingress: http://{{ .Values.ingress.host }}/docs
+{{- end }}
+{{- if .Values.keda.enabled }}
+  KEDA: kubectl get scaledobject,hpa -n {{ .Release.Namespace }}
+{{- end }}

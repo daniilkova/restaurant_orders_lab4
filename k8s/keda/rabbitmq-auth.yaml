@@ -1,0 +1,21 @@
+# KEDA читает длину очереди через AMQP/HTTP API RabbitMQ. Строку подключения с паролем
+# не пишут в ScaledObject: TriggerAuthentication берёт её из Secret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keda-rabbitmq-secret
+  namespace: fastapi-app
+type: Opaque
+stringData:
+  host: "amqp://restaurant:rabbit-pass@rabbitmq.fastapi-app.svc.cluster.local:5672/"
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: rabbitmq-auth
+  namespace: fastapi-app
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: keda-rabbitmq-secret
+      key: host

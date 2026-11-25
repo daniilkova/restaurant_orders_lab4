@@ -1,0 +1,22 @@
+# Требуется аддон: minikube addons enable ingress
+# В /etc/hosts (или C:\Windows\System32\drivers\etc\hosts): <minikube ip> restaurant.local
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: restaurant
+  namespace: fastapi-app
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: restaurant.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http

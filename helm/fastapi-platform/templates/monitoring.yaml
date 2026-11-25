@@ -1,0 +1,133 @@
+{{- if .Values.monitoring.enabled }}
+{{- $m := .Values.monitoring }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fastapi-monitor
+  labels:
+    release: {{ $m.releaseLabel }}
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "autoscaling") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flower-monitor
+  labels:
+    release: {{ $m.releaseLabel }}
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "autoscaling") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: flower
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      basicAuth:
+        username:
+          name: {{ include "platform.secretName" . }}
+          key: ADMIN_USERNAME
+        password:
+          name: {{ include "platform.secretName" . }}
+          key: ADMIN_PASSWORD
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rabbitmq-monitor
+  labels:
+    release: {{ $m.releaseLabel }}
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "autoscaling") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: rabbitmq
+  endpoints:
+    - port: prometheus
+      path: /metrics/detailed
+      params:
+        family: [queue_coarse_metrics]
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: restaurant-alerts
+  labels:
+    release: {{ $m.releaseLabel }}
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "autoscaling") | nindent 4 }}
+spec:
+  groups:
+    - name: restaurant-api
+      rules:
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}", status=~"5.."}[5m]))
+              /
+            sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}"}[5m])) > {{ $m.alerts.errorRateThreshold }}
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Доля ответов 5xx в API выше {{ $m.alerts.errorRateThreshold }}"
+            description: {{ `"Ошибок 5xx: {{ $value | humanizePercentage }} за 5 минут"` }}
+        - alert: HighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(http_request_duration_seconds_bucket{namespace="{{ .Release.Namespace }}"}[5m]))) > {{ $m.alerts.latencyP95Seconds }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "P95 времени ответа API больше {{ $m.alerts.latencyP95Seconds }} с"
+            description: {{ `"P95 = {{ $value | humanizeDuration }}"` }}
+    - name: restaurant-celery
+      rules:
+        - alert: CeleryQueueBacklog
+          expr: sum(rabbitmq_detailed_queue_messages_ready{queue="{{ .Values.config.CELERY_QUEUE }}"}) > {{ $m.alerts.queueBacklog }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Очередь Celery растёт"
+            description: {{ `"В очереди {{ $value }} задач больше 10 минут"` }}
+        - alert: NoCeleryWorkers
+          expr: sum(flower_worker_online) < 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Нет ни одного онлайн-воркера Celery"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-restaurant-dashboards
+  namespace: {{ $m.dashboardsNamespace }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    grafana_folder: Restaurant
+data:
+  fastapi-dashboard.json: |-
+    {{- .Files.Get "dashboards/fastapi-dashboard.json" | nindent 4 }}
+  celery-dashboard.json: |-
+    {{- .Files.Get "dashboards/celery-dashboard.json" | nindent 4 }}
+{{- end }}
