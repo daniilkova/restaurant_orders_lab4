@@ -1,0 +1,59 @@
+# Фронтенд: nginx-unprivileged (UID 101, порт 8080) раздаёт собранный dist/.
+# Сборка в Minikube: eval $(minikube docker-env) && docker build -t restaurant-frontend:0.9.0 frontend-app/
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: fastapi-app
+  labels:
+    app: frontend
+    track: stable
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+      track: stable
+  template:
+    metadata:
+      labels:
+        app: frontend
+        track: stable
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          image: restaurant-frontend:0.9.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          # Образ nginx-unprivileged не меняет пользователя при старте, поэтому capabilities
+          # CHOWN/SETUID/SETGID (нужные обычному nginx) не требуются, а корневая ФС — только чтение
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp      # pid-файл и временные файлы nginx
+      volumes:
+        - name: tmp
+          emptyDir: {}
