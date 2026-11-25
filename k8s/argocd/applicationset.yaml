@@ -1,0 +1,73 @@
+# ApplicationSet с Git Directory Generator: каждый каталог environments/<имя>/
+# автоматически становится отдельным Application «restaurant-<имя>» в namespace fastapi-<имя>.
+# Новое окружение = новый каталог с values.yaml, без правки Argo CD.
+# Progressive Sync (RollingSync): сначала dev, затем staging, последним prod.
+# Требует включения: kubectl patch cm argocd-cmd-params-cm -n argocd \
+#   --type merge -p '{"data":{"applicationsetcontroller.enable.progressive.syncs":"true"}}'
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: restaurant-environments
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/student/restaurant-platform.git
+        revision: main
+        directories:
+          - path: environments/*
+  strategy:
+    type: RollingSync
+    rollingSync:
+      steps:
+        - matchExpressions:
+            - key: env
+              operator: In
+              values: [dev]
+        - matchExpressions:
+            - key: env
+              operator: In
+              values: [staging]
+          maxUpdate: 1
+        - matchExpressions:
+            - key: env
+              operator: In
+              values: [prod]
+          maxUpdate: 1
+  template:
+    metadata:
+      name: "restaurant-{{.path.basename}}"
+      labels:
+        env: "{{.path.basename}}"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/student/restaurant-platform.git
+        targetRevision: main
+        path: helm/fastapi-platform
+        helm:
+          releaseName: restaurant
+          valueFiles:
+            - values.yaml
+            - "../../environments/{{.path.basename}}/values.yaml"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "fastapi-{{.path.basename}}"
+      syncPolicy:
+        # метки Pod Security Standards на namespace, который создаёт Argo CD (CreateNamespace=true)
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: restricted
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/warn: restricted
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          name: celery-worker
+          jsonPointers:
+            - /spec/replicas

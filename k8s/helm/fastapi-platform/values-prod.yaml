@@ -1,0 +1,39 @@
+# Production: кластер CloudNativePG с резервным копированием, KEDA, больше реплик API.
+# Тег образа здесь обновляет Argo CD Image Updater (git write-back).
+database:
+  mode: cnpg
+  cnpg:
+    instances: 3
+    backup:
+      enabled: true
+api:
+  replicaCount: 3
+  image:
+    repository: ghcr.io/student/restaurant-api
+    tag: "0.5.0"
+worker:
+  autoscaled: true
+  image:
+    repository: ghcr.io/student/restaurant-worker
+    tag: "0.5.0"
+keda:
+  enabled: true
+  minReplicaCount: 1
+  maxReplicaCount: 20
+ingress:
+  enabled: true
+  host: restaurant.example.com
+  tls:
+    enabled: true
+    clusterIssuer: letsencrypt-prod
+    secretName: restaurant-tls
+security:
+  vault:
+    enabled: true
+secrets:
+  existingSecret: app-secret           # создаёт VSO из Vault (security.vault.enabled)
+seaweedfs:
+  enabled: true
+  volumeStorage: 50Gi
+monitoring:
+  enabled: true

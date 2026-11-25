@@ -1,0 +1,7 @@
+api:
+  replicaCount: 2
+keda:
+  enabled: true
+  maxReplicaCount: 5
+worker:
+  autoscaled: true

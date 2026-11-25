@@ -1,0 +1,8 @@
+-r requirements.txt
+pytest>=8
+httpx>=0.27
+ruff>=0.6
+moto[s3]>=5.0
+jsonschema>=4
+kubernetes-validate>=1.30
+pyyaml>=6

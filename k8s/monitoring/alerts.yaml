@@ -1,0 +1,91 @@
+# Правила алертов приложения (PrometheusRule подхватывается kube-prometheus-stack).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: restaurant-alerts
+  namespace: fastapi-app
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: restaurant-api
+      rules:
+        - alert: HighErrorRate
+          # sum(...) по всем обработчикам: иначе деление идёт по каждой серии отдельно
+          expr: |
+            sum(rate(http_requests_total{namespace="fastapi-app", status=~"5.."}[5m]))
+              /
+            sum(rate(http_requests_total{namespace="fastapi-app"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Доля ответов 5xx в API выше 5%"
+            description: "Ошибок 5xx: {{ $value | humanizePercentage }} за 5 минут"
+        - alert: HighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(http_request_duration_seconds_bucket{namespace="fastapi-app"}[5m]))) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "P95 времени ответа API больше 1 с"
+            description: "P95 = {{ $value | humanizeDuration }}"
+        - alert: ApiDown
+          expr: absent(up{job="api", namespace="fastapi-app"} == 1)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Нет ни одного доступного пода API"
+    - name: restaurant-celery
+      rules:
+        - alert: CeleryQueueBacklog
+          expr: sum(rabbitmq_detailed_queue_messages_ready{queue="celery"}) > 100
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Очередь Celery растёт"
+            description: "В очереди celery {{ $value }} задач больше 10 минут"
+        - alert: NoCeleryWorkers
+          expr: sum(flower_worker_online) < 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Нет ни одного онлайн-воркера Celery: статусы заказов не меняются"
+        - alert: OrdersStuckAccepted
+          # заказы создаются, а смена статусов (работа воркеров) не происходит
+          expr: |
+            increase(restaurant_orders_created_total[15m]) > 0
+              and on() sum(increase(flower_events_total{type="task-succeeded"}[15m])) == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Заказы поступают, но задачи Celery не выполняются"
+    - name: restaurant-security
+      rules:
+        - alert: AuthBruteforceSuspected
+          expr: sum(rate(restaurant_auth_events_total{event=~"login_failed|login_blocked"}[5m])) * 60 > 20
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Много неудачных входов: возможен подбор паролей"
+            description: "{{ $value }} неудачных попыток в минуту"
+        - alert: RefreshTokenReuse
+          expr: increase(restaurant_auth_events_total{event="refresh_reuse"}[10m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "Повторно использован refresh-токен (возможна кража токена)"
+        - alert: Many403
+          expr: sum(rate(http_requests_total{namespace="fastapi-app", status="403"}[5m])) * 60 > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Всплеск ответов 403: перебор чужих объектов или эскалация прав"

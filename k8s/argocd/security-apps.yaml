@@ -1,0 +1,124 @@
+# Компоненты безопасности кластера через GitOps (Argo CD ставит Helm-чарты из их репозиториев).
+# Значения — из этого репозитория (multi-source: $values).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.16.2
+    helm:
+      valuesObject:
+        crds:
+          enabled: true
+  destination: {server: https://kubernetes.default.svc, namespace: cert-manager}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: default
+  source:
+    repoURL: https://kyverno.github.io/kyverno/
+    chart: kyverno
+    targetRevision: 3.3.4
+  destination: {server: https://kubernetes.default.svc, namespace: kyverno}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: default
+  sources:
+    - repoURL: https://helm.releases.hashicorp.com
+      chart: vault
+      targetRevision: 0.29.1
+      helm:
+        valueFiles: [$values/security/vault-values.yaml]
+    - repoURL: https://github.com/student/restaurant-platform.git
+      targetRevision: main
+      ref: values
+  destination: {server: https://kubernetes.default.svc, namespace: vault}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [CreateNamespace=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault-secrets-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-9"
+spec:
+  project: default
+  source:
+    repoURL: https://helm.releases.hashicorp.com
+    chart: vault-secrets-operator
+    targetRevision: 0.9.1
+  destination: {server: https://kubernetes.default.svc, namespace: vault-secrets-operator-system}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: falco
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://falcosecurity.github.io/charts
+      chart: falco
+      targetRevision: 4.17.0
+      helm:
+        valueFiles: [$values/security/falco/falco-values.yaml]
+    - repoURL: https://github.com/student/restaurant-platform.git
+      targetRevision: main
+      ref: values
+  destination: {server: https://kubernetes.default.svc, namespace: falco}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [CreateNamespace=true]
+---
+# Политики Kyverno и ClusterIssuer'ы cert-manager — обычные манифесты из Git
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: security-policies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/student/restaurant-platform.git
+    targetRevision: main
+    path: security
+    directory:
+      recurse: true
+      include: "{kyverno/policies.yaml,cert-manager/*.yaml}"
+  destination: {server: https://kubernetes.default.svc, namespace: cert-manager}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}

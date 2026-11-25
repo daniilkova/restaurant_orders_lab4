@@ -1,0 +1,21 @@
+apiVersion: v2
+name: fastapi-platform
+description: "Ресторан и заказы (вариант 9) — umbrella-чарт: API, Celery-воркеры, Redis, RabbitMQ, PostgreSQL"
+type: application
+version: 0.5.0
+appVersion: "0.5.0"
+# Подчарты лежат в charts/ (локальные), поэтому repository не указан:
+# helm install берёт их из каталога, helm dependency update не нужен.
+dependencies:
+  - name: api
+    version: 0.5.0
+    condition: api.enabled
+  - name: worker
+    version: 0.5.0
+    condition: worker.enabled
+  - name: redis
+    version: 0.5.0
+    condition: redis.enabled
+  - name: rabbitmq
+    version: 0.5.0
+    condition: rabbitmq.enabled

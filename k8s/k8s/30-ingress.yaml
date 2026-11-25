@@ -1,0 +1,31 @@
+# Требуются: minikube addons enable ingress; cert-manager и ClusterIssuer restaurant-ca
+# (security/cert-manager/cluster-issuers.yaml). В hosts: <minikube ip> restaurant.local
+# cert-manager видит аннотацию, выпускает сертификат в Secret restaurant-tls и продлевает его
+# заранее (по умолчанию за 1/3 срока действия).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: restaurant
+  namespace: fastapi-app
+  annotations:
+    cert-manager.io/cluster-issuer: restaurant-ca        # в production: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"     # http -> https
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - restaurant.local
+      secretName: restaurant-tls
+  rules:
+    - host: restaurant.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http

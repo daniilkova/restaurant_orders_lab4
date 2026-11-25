@@ -1,0 +1,16 @@
+# VSO входит в Vault от имени ServiceAccount fastapi-sa (метод kubernetes): Vault проверяет
+# токен SA через TokenReview и выдаёт права политики fastapi-policy (только чтение нужных путей).
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: vault-auth
+  namespace: fastapi-app
+spec:
+  vaultConnectionRef: vault-connection
+  method: kubernetes
+  mount: kubernetes
+  kubernetes:
+    role: fastapi-role
+    serviceAccount: fastapi-sa
+    audiences:
+      - vault

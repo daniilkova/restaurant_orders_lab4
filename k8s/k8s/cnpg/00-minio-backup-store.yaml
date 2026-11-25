@@ -1,0 +1,124 @@
+# Учебное S3-хранилище для резервных копий PostgreSQL (имитация облачного S3).
+# В ЛР4 его заменяет SeaweedFS.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-s3-credentials
+  namespace: fastapi-app
+type: Opaque
+stringData:
+  ACCESS_KEY_ID: "backup"
+  ACCESS_SECRET_KEY: "backup-secret-key"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: fastapi-app
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: {name: backup-s3-credentials, key: ACCESS_KEY_ID}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: backup-s3-credentials, key: ACCESS_SECRET_KEY}
+          ports:
+            - {containerPort: 9000, name: s3}
+            - {containerPort: 9001, name: console}
+          readinessProbe:
+            httpGet: {path: /minio/health/ready, port: s3}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: fastapi-app
+spec:
+  selector:
+    app: minio
+  ports:
+    - {name: s3, port: 9000, targetPort: s3}
+    - {name: console, port: 9001, targetPort: console}
+---
+# Создаёт бакет cnpg-backups (один раз)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-bucket
+  namespace: fastapi-app
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: minio-create-bucket
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: mc
+          image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          command: ["sh", "-c"]
+          args:
+            - mc alias set local http://minio:9000 "$ACCESS_KEY_ID" "$ACCESS_SECRET_KEY" &&
+              mc mb --ignore-existing local/cnpg-backups
+          env:
+            - {name: MC_CONFIG_DIR, value: /tmp/.mc}   # домашний каталог недоступен на запись
+          envFrom:
+            - secretRef: {name: backup-s3-credentials}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}

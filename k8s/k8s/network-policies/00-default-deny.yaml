@@ -1,0 +1,12 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: fastapi-app
+  annotations:
+    description: Запрещено всё, что не разрешено явно (входящий и исходящий трафик)
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress

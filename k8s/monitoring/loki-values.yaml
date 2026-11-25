@@ -1,0 +1,41 @@
+# helm repo add grafana https://grafana.github.io/helm-charts
+# helm install loki grafana/loki -n monitoring -f monitoring/loki-values.yaml
+# Режим SingleBinary — один под Loki, хранилище на файловой системе (учебный кластер).
+deploymentMode: SingleBinary
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  limits_config:
+    retention_period: 168h        # 7 дней
+    allow_structured_metadata: true
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 5Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+# В SingleBinary остальные компоненты выключены
+backend: {replicas: 0}
+read: {replicas: 0}
+write: {replicas: 0}
+chunksCache: {enabled: false}
+resultsCache: {enabled: false}
+gateway:
+  enabled: true

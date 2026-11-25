@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "restaurant",
+      "credentials": [{"accessKey": "restaurant", "secretKey": "restaurant-secret"}],
+      "actions": ["Read", "Write", "List", "Tagging", "Admin"]
+    }
+  ]
+}

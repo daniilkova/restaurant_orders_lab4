@@ -1,0 +1,75 @@
+# Celery-воркер не слушает HTTP, поэтому liveness — exec-проба:
+# celery inspect ping отправляет широковещательный ping через RabbitMQ и ждёт ответа
+# именно этого воркера (celery@<имя пода>). Зависший воркер не ответит — kubelet перезапустит под.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: fastapi-app
+  labels:
+    app: celery-worker
+spec:
+  replicas: 1                 # при включённом KEDA число реплик задаёт ScaledObject
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+    spec:
+      terminationGracePeriodSeconds: 60   # даём дообработать задачу (warm shutdown)
+      serviceAccountName: celery-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: restaurant-worker:0.5.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          args: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+            - secretRef:
+                name: app-db-credentials   # динамический пользователь БД из Vault (если настроен)
+                optional: true
+            - configMapRef:
+                name: s3-config
+                optional: true       # до ЛР4 (без SeaweedFS) под стартует и без S3
+            - secretRef:
+                name: s3-credentials
+                optional: true
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "celery -A app.celery_app inspect ping -d celery@$HOSTNAME --timeout 10"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

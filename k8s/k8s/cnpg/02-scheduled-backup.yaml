@@ -1,0 +1,12 @@
+# Полная резервная копия каждый день в 03:00 (формат cron с секундами) + непрерывный архив WAL.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: restaurant-db-daily
+  namespace: fastapi-app
+spec:
+  schedule: "0 0 3 * * *"
+  backupOwnerReference: self
+  immediate: true               # первая копия сразу после создания
+  cluster:
+    name: restaurant-db

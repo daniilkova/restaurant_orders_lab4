@@ -1,0 +1,69 @@
+# Цели для Prometheus (kube-prometheus-stack). Метка release: monitoring — по ней
+# Prometheus выбирает ServiceMonitor'ы (или serviceMonitorSelectorNilUsesHelmValues: false).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fastapi-monitor
+  namespace: fastapi-app
+  labels:
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: api
+  namespaceSelector:
+    matchNames: [fastapi-app]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      # С ЛР5 /metrics закрыт токеном (METRICS_TOKEN из Vault)
+      authorization:
+        type: Bearer
+        credentials:
+          name: app-secret
+          key: METRICS_TOKEN
+---
+# Celery: Flower отдаёт метрики задач и воркеров (flower_events_total, flower_worker_online, ...)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flower-monitor
+  namespace: fastapi-app
+  labels:
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: flower
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      basicAuth:
+        username:
+          name: app-secret
+          key: ADMIN_USERNAME
+        password:
+          name: app-secret
+          key: ADMIN_PASSWORD
+---
+# RabbitMQ: длина очереди celery (rabbitmq_detailed_queue_messages_ready{queue="celery"}).
+# Обычный /metrics отдаёт агрегаты без разбивки по очередям, поэтому берём /metrics/detailed.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rabbitmq-monitor
+  namespace: fastapi-app
+  labels:
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: rabbitmq
+  endpoints:
+    - port: prometheus
+      path: /metrics/detailed
+      params:
+        family: [queue_coarse_metrics]
+      interval: 15s

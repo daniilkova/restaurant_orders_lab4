@@ -1,0 +1,18 @@
+# Бакет создаётся декларативно (CRD Bucket), а не кодом приложения.
+apiVersion: seaweed.seaweedfs.com/v1
+kind: Bucket
+metadata:
+  name: fastapi-files
+  namespace: fastapi-app
+spec:
+  clusterRef:
+    name: seaweedfs
+  name: fastapi-files
+  reclaimPolicy: Retain          # удаление CR не удаляет файлы пользователей
+  versioning: "Off"
+  quota:
+    size: 5Gi
+    enforce: true
+  access:
+    - user: restaurant-app
+      actions: [Read, Write, List]

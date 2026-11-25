@@ -1,0 +1,32 @@
+fullnameOverride: celery-worker
+replicaCount: 1
+autoscaled: false   # true, когда реплики задаёт KEDA
+concurrency: 2
+image:
+  repository: restaurant-worker
+  tag: "0.5.0"
+  pullPolicy: IfNotPresent
+resources:
+  requests: {cpu: 100m, memory: 192Mi}
+  limits: {cpu: 500m, memory: 384Mi}
+flower:
+  enabled: true
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 250m, memory: 256Mi}
+serviceAccountName: celery-sa
+global:
+  configMapName: app-config
+  secretName: app-secret
+  s3CredentialsSecret: s3-credentials
+  dbCredentialsSecret: app-db-credentials
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile: {type: RuntimeDefault}
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: ["ALL"]}

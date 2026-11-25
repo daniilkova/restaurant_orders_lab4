@@ -1,0 +1,15 @@
+# Разработка в Minikube: одна реплика API, PostgreSQL в StatefulSet, KEDA выключен.
+api:
+  replicaCount: 1
+worker:
+  replicaCount: 1
+config:
+  COOKING_DELAY_SECONDS: "10"
+  DELIVERY_DELAY_SECONDS: "10"
+ingress:
+  enabled: true
+  host: restaurant.local
+seaweedfs:
+  enabled: true
+monitoring:
+  enabled: true

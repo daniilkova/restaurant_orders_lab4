@@ -1,0 +1,33 @@
+# Масштабирование Celery-воркеров по длине очереди: 1 воркер на каждые 10 сообщений.
+# KEDA создаёт HPA keda-hpa-celery-worker-scaler и отдаёт ему внешнюю метрику
+# через metrics-apiserver (external.metrics.k8s.io).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: celery-worker-scaler
+  namespace: fastapi-app
+spec:
+  scaleTargetRef:
+    name: celery-worker
+  pollingInterval: 15
+  cooldownPeriod: 60
+  minReplicaCount: 1          # 0 — scale-to-zero (первая задача будет ждать старта пода)
+  maxReplicaCount: 10
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 60
+          policies:
+            - type: Percent
+              value: 50
+              periodSeconds: 30
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: celery
+        mode: QueueLength
+        value: "10"
+      authenticationRef:
+        name: rabbitmq-auth

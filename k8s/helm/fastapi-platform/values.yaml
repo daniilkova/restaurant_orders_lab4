@@ -1,0 +1,172 @@
+# Общие для всех подчартов значения (доступны в подчартах как .Values.global.*)
+global:
+  configMapName: app-config
+  secretName: app-secret
+  # Pod Security Standards restricted: общие настройки для приложения (образы с UID 10001)
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  # Динамические учётные данные БД из Vault (Secret создаёт VSO); optional — работает и без Vault
+  dbCredentialsSecret: app-db-credentials
+  # Secret с ключами S3 (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY); создаёт оператор SeaweedFS
+  s3CredentialsSecret: s3-credentials
+  # Аннотации sync waves для Argo CD (порядок: конфигурация -> инфраструктура -> миграции -> приложение)
+  syncWaves:
+    config: "-1"
+    infra: "0"
+    migrate: "1"
+    app: "2"
+    autoscaling: "3"
+
+# Несекретная конфигурация (ConfigMap app-config)
+config:
+  COOKING_DELAY_SECONDS: "20"
+  DELIVERY_DELAY_SECONDS: "20"
+  DISHES_CACHE_TTL: "60"
+  ORDERS_RATE_LIMIT: "20"
+  ORDERS_RATE_WINDOW: "60"
+  CELERY_QUEUE: celery
+  LOG_FORMAT: json
+
+# Секреты (Secret app-secret). Значения для учебного стенда; в production — внешний Secret
+# (existingSecret) из Vault/Sealed Secrets, см. ЛР5.
+secrets:
+  # Имя готового Secret (например, созданного VSO из Vault). Если задано — Secret из values не создаётся.
+  existingSecret: ""
+  databaseUser: restaurant
+  databasePassword: restaurant-pass
+  rabbitmqUser: restaurant
+  rabbitmqPassword: rabbit-pass
+  adminUsername: staff               # HTTP Basic для /dashboard и Flower
+  adminPassword: staff-pass
+  secretKey: change-me-in-production-at-least-32-bytes
+  bootstrapAdminUsername: admin       # первый администратор API (роль admin)
+  bootstrapAdminPassword: Admin12345
+  metricsToken: change-me-metrics-token
+
+# S3-хранилище файлов (фото блюд и /files)
+s3:
+  endpoint: http://seaweedfs-s3:8333
+  bucket: fastapi-files
+  region: us-east-1
+
+# SeaweedFS через оператор (нужен установленный seaweedfs-operator)
+seaweedfs:
+  enabled: false
+  image: chrislusf/seaweedfs:3.80
+  volumeStorage: 10Gi
+  filerStorage: 5Gi
+  bucketQuota: 5Gi
+
+# Мониторинг (нужен kube-prometheus-stack): ServiceMonitor'ы, алерты, дашборды Grafana
+monitoring:
+  enabled: false
+  releaseLabel: monitoring          # метка release, по которой Prometheus выбирает ServiceMonitor
+  dashboardsNamespace: monitoring
+  alerts:
+    errorRateThreshold: 0.05
+    latencyP95Seconds: 1
+    queueBacklog: 100
+
+# База данных: statefulset (простой PostgreSQL) или cnpg (кластер CloudNativePG с failover)
+database:
+  mode: statefulset
+  name: restaurant
+  statefulset:
+    image: postgres:16-alpine
+    storage: 1Gi
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 512Mi}
+  cnpg:
+    clusterName: restaurant-db
+    instances: 3
+    imageName: ghcr.io/cloudnative-pg/postgresql:16.6
+    storage: 1Gi
+    backup:
+      enabled: false
+      destinationPath: s3://cnpg-backups/
+      endpointURL: http://minio.fastapi-app.svc.cluster.local:9000
+      credentialsSecret: backup-s3-credentials
+      schedule: "0 0 3 * * *"
+      retentionPolicy: 7d
+
+# Job с миграциями Alembic (образ API)
+migrations:
+  enabled: true
+
+api:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: restaurant-api
+    tag: "0.5.0"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+worker:
+  enabled: true
+  replicaCount: 1
+  autoscaled: false   # true вместе с keda.enabled
+  concurrency: 2
+  image:
+    repository: restaurant-worker
+    tag: "0.5.0"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: {cpu: 100m, memory: 192Mi}
+    limits: {cpu: 500m, memory: 384Mi}
+  flower:
+    enabled: true
+
+redis:
+  enabled: true
+
+rabbitmq:
+  enabled: true
+  storage: 1Gi
+
+# KEDA: масштабирование воркеров по длине очереди RabbitMQ (нужен установленный KEDA)
+keda:
+  enabled: false
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  messagesPerWorker: "10"
+  pollingInterval: 15
+  cooldownPeriod: 60
+
+ingress:
+  enabled: false
+  className: nginx
+  host: restaurant.local
+  annotations: {}
+  tls:
+    enabled: true
+    clusterIssuer: restaurant-ca       # production: letsencrypt-prod
+    secretName: restaurant-tls
+
+# ЛР5: безопасность
+security:
+  podSecurityStandard: restricted      # метки PSS ставятся на namespace при CreateNamespace (Argo CD)
+  networkPolicies:
+    enabled: true
+    ingressNamespace: ingress-nginx
+    monitoringNamespace: monitoring
+    kedaNamespace: keda
+  vault:
+    enabled: false                     # true: секреты из Vault через Vault Secrets Operator
+    address: http://vault.vault.svc.cluster.local:8200
+    role: fastapi-role
+    staticSecretPath: fastapi/config
+    dynamicDatabase: true

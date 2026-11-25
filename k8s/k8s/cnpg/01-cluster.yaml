@@ -1,0 +1,62 @@
+# Высокодоступный PostgreSQL через оператор CloudNativePG (вместо k8s/10-postgres.yaml).
+# Установка оператора:
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.25/releases/cnpg-1.25.1.yaml
+# Оператор создаёт сервисы restaurant-db-rw (primary, запись), restaurant-db-ro (реплики), restaurant-db-r (любой).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: restaurant-db-credentials
+  namespace: fastapi-app
+type: kubernetes.io/basic-auth
+stringData:
+  username: restaurant          # те же логин и пароль, что в app-secret
+  password: restaurant-pass
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: restaurant-db
+  namespace: fastapi-app
+spec:
+  instances: 3                  # 1 primary + 2 реплики (потоковая репликация)
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.6
+  primaryUpdateStrategy: unsupervised
+  bootstrap:
+    initdb:
+      database: restaurant
+      owner: restaurant
+      secret:
+        name: restaurant-db-credentials
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "128MB"
+  storage:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: preferred   # в однонодовом Minikube required не даст запустить реплики
+  backup:
+    retentionPolicy: "7d"
+    barmanObjectStore:
+      destinationPath: s3://cnpg-backups/
+      endpointURL: http://minio.fastapi-app.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId:
+          name: backup-s3-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: backup-s3-credentials
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip

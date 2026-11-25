@@ -1,0 +1,12 @@
+# Pod Security Standards (ЛР5): поды, нарушающие профиль restricted (root, privileged,
+# лишние capabilities, без seccomp), API-сервер не пропустит.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fastapi-app
+  labels:
+    app.kubernetes.io/part-of: restaurant
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

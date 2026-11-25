@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "worker.fullname" . }}
+  labels:
+    {{- include "worker.labels" . | nindent 4 }}
+  annotations:
+    {{- include "worker.syncWave" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaled }}
+  # При включённом KEDA число реплик задаёт HPA, поле replicas не рендерим,
+  # иначе helm upgrade / Argo CD сбрасывали бы его обратно.
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "worker.selectorLabels" . | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: 60
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.global.podSecurityContext | nindent 8 }}
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.global.containerSecurityContext | nindent 12 }}
+          args:
+            - celery
+            - -A
+            - app.celery_app
+            - worker
+            - --loglevel=info
+            - {{ printf "--concurrency=%v" .Values.concurrency | quote }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Values.global.configMapName }}
+            - secretRef:
+                name: {{ .Values.global.secretName }}
+            - secretRef:
+                name: {{ .Values.global.dbCredentialsSecret | default "app-db-credentials" }}
+                optional: true
+            - secretRef:
+                name: {{ .Values.global.s3CredentialsSecret | default "s3-credentials" }}
+                optional: true
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "celery -A app.celery_app inspect ping -d celery@$HOSTNAME --timeout 10"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

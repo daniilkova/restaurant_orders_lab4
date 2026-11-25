@@ -1,0 +1,87 @@
+{{- if .Values.seaweedfs.enabled }}
+{{- $sw := .Values.seaweedfs }}
+apiVersion: seaweed.seaweedfs.com/v1
+kind: Seaweed
+metadata:
+  name: seaweedfs
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "infra") | nindent 4 }}
+spec:
+  image: {{ $sw.image }}
+  volumeServerDiskCount: 1
+  master:
+    replicas: 1
+    volumeSizeLimitMB: 1024
+    defaultReplication: "000"
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  volume:
+    replicas: 1
+    requests: {cpu: 100m, memory: 256Mi, storage: {{ $sw.volumeStorage }}}
+    limits: {cpu: 500m, memory: 512Mi}
+  filer:
+    replicas: 1
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+    persistence:
+      enabled: true
+      resources:
+        requests:
+          storage: {{ $sw.filerStorage }}
+    s3:
+      enabled: true
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Identity
+metadata:
+  name: restaurant-app
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "infra") | nindent 4 }}
+spec:
+  seaweedRef:
+    name: seaweedfs
+  name: restaurant-app
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Credentials
+metadata:
+  name: restaurant-app
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "infra") | nindent 4 }}
+spec:
+  seaweedRef:
+    name: seaweedfs
+  identityRef:
+    name: restaurant-app
+  secretRef:
+    name: {{ .Values.global.s3CredentialsSecret }}
+    accessKeyField: AWS_ACCESS_KEY_ID
+    secretKeyField: AWS_SECRET_ACCESS_KEY
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: Bucket
+metadata:
+  name: {{ .Values.s3.bucket }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "infra") | nindent 4 }}
+spec:
+  clusterRef:
+    name: seaweedfs
+  name: {{ .Values.s3.bucket }}
+  reclaimPolicy: Retain
+  versioning: "Off"
+  quota:
+    size: {{ $sw.bucketQuota }}
+    enforce: true
+  access:
+    - user: restaurant-app
+      actions: [Read, Write, List]
+{{- end }}

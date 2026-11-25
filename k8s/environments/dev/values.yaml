@@ -1,0 +1,5 @@
+api:
+  replicaCount: 1
+config:
+  COOKING_DELAY_SECONDS: "10"
+  DELIVERY_DELAY_SECONDS: "10"

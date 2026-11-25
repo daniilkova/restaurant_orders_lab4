@@ -1,0 +1,33 @@
+fullnameOverride: api
+replicaCount: 2
+image:
+  repository: restaurant-api
+  tag: "0.5.0"
+  pullPolicy: IfNotPresent
+containerPort: 8000
+service:
+  type: ClusterIP
+  port: 80
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: 500m, memory: 256Mi}
+probes:
+  liveness: /health
+  readiness: /ready
+podAnnotations: {}
+serviceAccountName: fastapi-sa
+global:
+  configMapName: app-config
+  secretName: app-secret
+  s3CredentialsSecret: s3-credentials
+  dbCredentialsSecret: app-db-credentials
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile: {type: RuntimeDefault}
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: ["ALL"]}

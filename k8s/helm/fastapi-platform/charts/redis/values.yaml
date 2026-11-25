@@ -1,0 +1,6 @@
+fullnameOverride: redis
+image: redis:7-alpine
+maxmemory: 100mb
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {cpu: 250m, memory: 128Mi}

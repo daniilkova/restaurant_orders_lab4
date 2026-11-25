@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.global.configMapName }}
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "config") | nindent 4 }}
+data:
+  DATABASE_HOST: {{ include "platform.databaseHost" . | quote }}
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: {{ .Values.database.name | quote }}
+  REDIS_URL: "redis://redis:6379/1"
+  S3_ENDPOINT: {{ .Values.s3.endpoint | quote }}
+  S3_BUCKET: {{ .Values.s3.bucket | quote }}
+  S3_REGION: {{ .Values.s3.region | quote }}
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

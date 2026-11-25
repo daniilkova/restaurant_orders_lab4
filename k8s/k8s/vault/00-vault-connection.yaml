@@ -1,0 +1,11 @@
+# Vault Secrets Operator (VSO) — синхронизирует секреты из Vault в обычные Kubernetes Secret.
+# Установка: см. scripts/vault-setup.sh. Приложение по-прежнему читает переменные окружения —
+# код не меняется, меняется только источник Secret.
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultConnection
+metadata:
+  name: vault-connection
+  namespace: fastapi-app
+spec:
+  address: http://vault.vault.svc.cluster.local:8200
+  skipTLSVerify: false

@@ -1,0 +1,52 @@
+{{- if .Values.migrations.enabled }}
+# Миграции Alembic.
+# helm install/upgrade: post-install/post-upgrade hook (после создания БД и секретов).
+# Argo CD: Sync hook в волне "migrate" — выполняется после инфраструктуры и до Deployment'ов API.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  labels:
+    app: db-migrate
+    {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    {{- include "platform.syncWave" (list . "migrate") | nindent 4 }}
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: fastapi-sa
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.global.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.global.containerSecurityContext | nindent 12 }}
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: {{ .Values.global.configMapName }}
+            - secretRef:
+                name: {{ include "platform.secretName" . }}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

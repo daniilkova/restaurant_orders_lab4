@@ -1,0 +1,20 @@
+# Несекретные настройки. Меняются без пересборки образа:
+# kubectl apply -f k8s/01-configmap.yaml && kubectl rollout restart deploy/api -n fastapi-app
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: fastapi-app
+  labels:
+    app.kubernetes.io/part-of: restaurant
+data:
+  DATABASE_HOST: "postgres"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "restaurant"
+  REDIS_URL: "redis://redis:6379/1"
+  CELERY_QUEUE: "celery"
+  COOKING_DELAY_SECONDS: "20"
+  DELIVERY_DELAY_SECONDS: "20"
+  DISHES_CACHE_TTL: "60"
+  ORDERS_RATE_LIMIT: "20"
+  ORDERS_RATE_WINDOW: "60"

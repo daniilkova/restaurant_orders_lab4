@@ -1,0 +1,49 @@
+# Argo CD Application: держит кластер в состоянии, описанном в Git (helm/fastapi-platform).
+# Замените repoURL на адрес своего репозитория.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: restaurant-platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io   # при удалении Application удаляются и ресурсы
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/student/restaurant-platform.git
+    targetRevision: main
+    path: helm/fastapi-platform
+    helm:
+      releaseName: restaurant
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fastapi-app
+  syncPolicy:
+    # метки Pod Security Standards на namespace, который создаёт Argo CD (CreateNamespace=true)
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/audit: restricted
+        pod-security.kubernetes.io/warn: restricted
+    automated:
+      prune: true        # удалять из кластера то, что удалено из Git
+      selfHeal: true     # откатывать ручные изменения (kubectl edit) к состоянию из Git
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    # replicas воркера меняет HPA от KEDA — это не дрейф конфигурации
+    - group: apps
+      kind: Deployment
+      name: celery-worker
+      jsonPointers:
+        - /spec/replicas
