@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minio-ingress
+  namespace: fastapi-app
+  annotations:
+    description: 'Хранилище резервных копий: только кластер PostgreSQL и Job создания бакета'
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cnpg.io/cluster: restaurant-db
+    - podSelector:
+        matchLabels:
+          app: minio-create-bucket
+    ports:
+    - protocol: TCP
+      port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minio-create-bucket-egress
+  namespace: fastapi-app
+  annotations:
+    description: Job создания бакета ходит только в MinIO
+spec:
+  podSelector:
+    matchLabels:
+      app: minio-create-bucket
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: minio
+    ports:
+    - protocol: TCP
+      port: 9000

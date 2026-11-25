@@ -1,0 +1,3 @@
+# Осознанные исключения Trivy (с обоснованием). Пусто = исключений нет.
+# Учебные пароли в k8s/02-secret.yaml и docker-compose.yml не являются секретами production:
+# в кластере Secret app-secret создаёт Vault Secrets Operator (k8s/vault/).

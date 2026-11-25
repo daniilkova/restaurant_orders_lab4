@@ -1,0 +1,61 @@
+# helm repo add falcosecurity https://falcosecurity.github.io/charts
+# helm install falco falcosecurity/falco -n falco --create-namespace -f security/falco/falco-values.yaml
+# Falco читает системные вызовы через eBPF (modern_ebpf — CO-RE, без сборки модуля ядра;
+# старый вариант driver.kind=ebpf из методички помечен устаревшим).
+driver:
+  kind: modern_ebpf
+tty: true
+falco:
+  json_output: true              # одна JSON-строка на событие — Alloy отправляет их в Loki
+  json_include_output_property: true
+  priority: notice
+  grpc:
+    enabled: false
+falcosidekick:
+  enabled: true
+  config:
+    loki:
+      hostport: http://loki-gateway.monitoring.svc.cluster.local
+      minimumpriority: warning
+    alertmanager:
+      hostport: http://monitoring-kube-prometheus-alertmanager.monitoring.svc.cluster.local:9093
+      minimumpriority: critical
+customRules:
+  restaurant-rules.yaml: |-
+    # Правила для namespace fastapi-app. В контейнерах API и воркера нет и не должно быть
+    # интерактивных оболочек, пакетных менеджеров и сетевых утилит.
+    - macro: restaurant_container
+      condition: >
+        k8s.ns.name = "fastapi-app" and
+        (container.image.repository endswith "restaurant-api" or
+         container.image.repository endswith "restaurant-worker")
+
+    - rule: Shell in restaurant container
+      desc: Запуск оболочки в контейнере API или воркера (kubectl exec или RCE)
+      condition: spawned_process and restaurant_container and proc.name in (bash, sh, dash, ash, zsh)
+      output: >
+        Оболочка в контейнере приложения (user=%user.name cmd=%proc.cmdline pod=%k8s.pod.name
+        ns=%k8s.ns.name image=%container.image.repository)
+      priority: WARNING
+      tags: [restaurant, mitre_execution]
+
+    - rule: Network tool in restaurant container
+      desc: Сетевые утилиты (curl, wget, nc) — типичный признак загрузки вредоносного кода или reverse shell
+      condition: spawned_process and restaurant_container and proc.name in (curl, wget, nc, ncat, netcat, socat)
+      output: Сетевая утилита в контейнере приложения (cmd=%proc.cmdline pod=%k8s.pod.name)
+      priority: ERROR
+      tags: [restaurant, mitre_command_and_control]
+
+    - rule: Write below app code
+      desc: Запись в каталог с кодом приложения (корневая ФС read-only, попытка — признак атаки)
+      condition: open_write and restaurant_container and fd.name startswith /code
+      output: Попытка изменить код приложения (file=%fd.name cmd=%proc.cmdline pod=%k8s.pod.name)
+      priority: CRITICAL
+      tags: [restaurant, mitre_persistence]
+
+    - rule: Read secrets env of other process
+      desc: Чтение /proc/<pid>/environ — так крадут переменные окружения с паролями
+      condition: open_read and restaurant_container and fd.name glob "/proc/*/environ" and not proc.name in (python, python3, celery, uvicorn)
+      output: Чтение переменных окружения процесса (file=%fd.name cmd=%proc.cmdline pod=%k8s.pod.name)
+      priority: WARNING
+      tags: [restaurant, mitre_credential_access]

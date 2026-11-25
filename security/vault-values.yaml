@@ -1,0 +1,13 @@
+# helm repo add hashicorp https://helm.releases.hashicorp.com
+# helm install vault hashicorp/vault -n vault --create-namespace -f security/vault-values.yaml
+# Учебный стенд: dev-режим (данные в памяти, root-токен "root", без unseal).
+# Production: server.ha.enabled=true + raft, TLS, auto-unseal (KMS), аудит-лог.
+server:
+  dev:
+    enabled: true
+    devRootToken: root
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+injector:
+  enabled: false        # секреты доставляет VSO, sidecar-инжектор не нужен

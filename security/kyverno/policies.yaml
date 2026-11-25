@@ -1,0 +1,189 @@
+# helm repo add kyverno https://kyverno.github.io/kyverno/
+# helm install kyverno kyverno/kyverno -n kyverno --create-namespace
+# kubectl apply -f security/kyverno/policies.yaml
+#
+# Kyverno дополняет Pod Security Standards: проверяет то, чего нет в PSS (теги образов, реестры,
+# ресурсы, метки), и работает и в namespace без меток PSS. Условные якоря =(...) проверяют поле,
+# только если оно задано: шаблон «privileged: false» без якоря отклонил бы и корректные поды,
+# в которых поле просто не указано.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privileged-containers
+  annotations:
+    policies.kyverno.io/title: Запрет привилегированных контейнеров
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: privileged-containers
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+          - resources:
+              namespaces: [kube-system, falco, kyverno]
+      validate:
+        message: "Привилегированные контейнеры запрещены (securityContext.privileged)."
+        pattern:
+          spec:
+            =(ephemeralContainers):
+              - =(securityContext):
+                  =(privileged): "false"
+            =(initContainers):
+              - =(securityContext):
+                  =(privileged): "false"
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-run-as-nonroot
+  annotations:
+    policies.kyverno.io/title: Запуск только от непривилегированного пользователя
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [fastapi-app]
+      validate:
+        message: "Под должен работать не от root: securityContext.runAsNonRoot=true."
+        anyPattern:
+          - spec:
+              securityContext:
+                runAsNonRoot: true
+              =(initContainers):
+                - =(securityContext):
+                    =(runAsNonRoot): true
+              containers:
+                - =(securityContext):
+                    =(runAsNonRoot): true
+          - spec:
+              =(initContainers):
+                - securityContext:
+                    runAsNonRoot: true
+              containers:
+                - securityContext:
+                    runAsNonRoot: true
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Образы только с конкретной версией
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-image-tag
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [fastapi-app]
+      validate:
+        message: "Нужен явный тег образа (образ без тега — это тоже latest)."
+        pattern:
+          spec:
+            containers:
+              - image: "*:*"
+    - name: validate-image-tag
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [fastapi-app]
+      validate:
+        message: "Тег latest запрещён: используйте версию (0.5.0) или digest."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-requests-limits
+  annotations:
+    policies.kyverno.io/title: Обязательные requests и limits
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: resources
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [fastapi-app]
+      validate:
+        message: "Для контейнеров нужны resources.requests (cpu, memory) и limits.memory."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    cpu: "?*"
+                    memory: "?*"
+                  limits:
+                    memory: "?*"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-ro-rootfs
+  annotations:
+    policies.kyverno.io/title: Корневая ФС только для чтения
+spec:
+  validationFailureAction: Audit      # RabbitMQ пишет в /etc при старте — пока только аудит
+  background: true
+  rules:
+    - name: readonly-rootfs
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [fastapi-app]
+      validate:
+        message: "Рекомендуется securityContext.readOnlyRootFilesystem=true."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  readOnlyRootFilesystem: true
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-host-namespaces-and-paths
+  annotations:
+    policies.kyverno.io/title: Запрет hostPath и host-namespaces
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: host-namespaces
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [fastapi-app]
+      validate:
+        message: "hostNetwork, hostPID, hostIPC и тома hostPath запрещены."
+        pattern:
+          spec:
+            =(hostNetwork): "false"
+            =(hostPID): "false"
+            =(hostIPC): "false"
+            =(volumes):
+              - X(hostPath): "null"

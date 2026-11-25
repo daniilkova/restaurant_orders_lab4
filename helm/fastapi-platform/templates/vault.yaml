@@ -1,0 +1,110 @@
+{{- if .Values.security.vault.enabled }}
+{{- $v := .Values.security.vault }}
+{{- $target := include "platform.secretName" . }}
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultConnection
+metadata:
+  name: vault-connection
+  labels: {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "config") | nindent 4 }}
+spec:
+  address: {{ $v.address }}
+  skipTLSVerify: false
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: vault-auth
+  labels: {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "config") | nindent 4 }}
+spec:
+  vaultConnectionRef: vault-connection
+  method: kubernetes
+  mount: kubernetes
+  kubernetes:
+    role: {{ $v.role }}
+    serviceAccount: fastapi-sa
+    audiences: [vault]
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultStaticSecret
+metadata:
+  name: {{ $target }}
+  labels: {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "config") | nindent 4 }}
+spec:
+  vaultAuthRef: vault-auth
+  mount: secret
+  type: kv-v2
+  path: {{ $v.staticSecretPath }}
+  refreshAfter: 30s
+  destination:
+    name: {{ $target }}
+    create: true
+    overwrite: true
+  rolloutRestartTargets:
+    - {kind: Deployment, name: api}
+    - {kind: Deployment, name: celery-worker}
+{{- if eq .Values.database.mode "cnpg" }}
+---
+# Логин/пароль владельца БД для bootstrap CloudNativePG — из того же пути Vault
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultStaticSecret
+metadata:
+  name: {{ .Values.database.cnpg.clusterName }}-credentials
+  labels: {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "config") | nindent 4 }}
+spec:
+  vaultAuthRef: vault-auth
+  mount: secret
+  type: kv-v2
+  path: {{ $v.staticSecretPath }}
+  refreshAfter: 60s
+  destination:
+    name: {{ .Values.database.cnpg.clusterName }}-credentials
+    create: true
+    overwrite: true
+    type: kubernetes.io/basic-auth
+    transformation:
+      excludeRaw: true
+      templates:
+        username:
+          text: {{ `'{{ get .Secrets "DATABASE_USER" }}'` }}
+        password:
+          text: {{ `'{{ get .Secrets "DATABASE_PASSWORD" }}'` }}
+{{- end }}
+{{- if $v.dynamicDatabase }}
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultDynamicSecret
+metadata:
+  name: {{ .Values.global.dbCredentialsSecret }}
+  labels: {{- include "platform.labels" . | nindent 4 }}
+  annotations:
+    {{- include "platform.syncWave" (list . "migrate") | nindent 4 }}
+spec:
+  vaultAuthRef: vault-auth
+  mount: database
+  path: creds/restaurant-app
+  renewalPercent: 67
+  revoke: true
+  destination:
+    name: {{ .Values.global.dbCredentialsSecret }}
+    create: true
+    overwrite: true
+    transformation:
+      excludeRaw: true
+      templates:
+        DATABASE_USER:
+          text: {{ `'{{ get .Secrets "username" }}'` }}
+        DATABASE_PASSWORD:
+          text: {{ `'{{ get .Secrets "password" }}'` }}
+  rolloutRestartTargets:
+    - {kind: Deployment, name: api}
+    - {kind: Deployment, name: celery-worker}
+{{- end }}
+{{- end }}
